@@ -1,0 +1,6 @@
+{
+  "name": "SafeCall",
+  "description": "Student Call Assistant that automatically answers incoming calls during classes or labs, speaks your busy status, and records parent voice messages.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

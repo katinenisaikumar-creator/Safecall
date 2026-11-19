@@ -1,0 +1,31 @@
+<resources>
+    <string name="app_name">SafeCall</string>
+    <string name="app_tagline">Student Call Assistant</string>
+    <string name="status_label">Nuvvu em chesthunnav?</string>
+    <string name="status_placeholder">Ex: Lab Session lo unna</string>
+    <string name="default_student_status">Lab Session lo unna</string>
+    <string name="college_mode_on">COLLEGE MODE: ON</string>
+    <string name="college_mode_off">COLLEGE MODE: OFF</string>
+    <string name="college_mode_on_desc">Auto-answers calls in 3s and saves parent messages</string>
+    <string name="college_mode_off_desc">Calls ring normally without auto-answering</string>
+    <string name="test_fake_call_title">Test Fake Call</string>
+    <string name="test_fake_call_desc">Test auto-answer, TTS &amp; Speech-to-Text without a second phone</string>
+    <string name="messages_title">Parent Messages</string>
+    <string name="clear_all">Clear All</string>
+    <string name="delete_message">Delete message</string>
+    <string name="empty_messages_title">No parent messages yet</string>
+    <string name="empty_messages_subtitle">Turn ON College Mode or tap Test Fake Call to see how SafeCall records messages when you are busy.</string>
+    <string name="permissions_setup">Permissions &amp; Battery</string>
+    <string name="battery_unrestricted">Unrestricted</string>
+    <string name="battery_optimized">Restricted</string>
+    <string name="grant_permissions">Grant Permissions</string>
+    <string name="request_battery_unrestricted">Allow Unrestricted</string>
+    <string name="clear_dialog_title">Clear all messages?</string>
+    <string name="clear_dialog_body">This will permanently remove all saved parent call messages.</string>
+    <string name="cancel">Cancel</string>
+    <string name="confirm_clear">Clear All</string>
+    <string name="notif_channel_monitor_name">College Mode Monitor</string>
+    <string name="notif_channel_monitor_desc">Keeps SafeCall active in the background when College Mode is ON</string>
+    <string name="notif_channel_messages_name">Parent Call Messages</string>
+    <string name="notif_channel_messages_desc">Notifies you when a parent leaves a voice message during class or lab</string>
+</resources>
