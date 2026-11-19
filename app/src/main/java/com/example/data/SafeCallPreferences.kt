@@ -19,6 +19,15 @@ class SafeCallPreferences(context: Context) {
     private val _studentStatusFlow = MutableStateFlow(studentStatus)
     val studentStatusFlow: StateFlow<String> = _studentStatusFlow.asStateFlow()
 
+    private val _modesFlow = MutableStateFlow(getAllModes())
+    val modesFlow: StateFlow<List<SafeCallMode>> = _modesFlow.asStateFlow()
+
+    private val _selectedModeIdFlow = MutableStateFlow(selectedModeId)
+    val selectedModeIdFlow: StateFlow<String> = _selectedModeIdFlow.asStateFlow()
+
+    private val _activeVoiceLanguageFlow = MutableStateFlow(getActiveVoiceLanguage())
+    val activeVoiceLanguageFlow: StateFlow<VoiceLanguageOption> = _activeVoiceLanguageFlow.asStateFlow()
+
     private val _messagesFlow = MutableStateFlow(getMessages())
     val messagesFlow: StateFlow<List<ParentMessage>> = _messagesFlow.asStateFlow()
 
@@ -26,6 +35,12 @@ class SafeCallPreferences(context: Context) {
         when (key) {
             KEY_COLLEGE_MODE -> _collegeModeFlow.value = isCollegeModeOn
             KEY_STUDENT_STATUS -> _studentStatusFlow.value = studentStatus
+            KEY_CUSTOM_MODES_JSON -> _modesFlow.value = getAllModes()
+            KEY_SELECTED_MODE_ID -> _selectedModeIdFlow.value = selectedModeId
+            KEY_SELECTED_LANGUAGE_ID,
+            KEY_CUSTOM_GREETING,
+            KEY_CUSTOM_CLOSING,
+            KEY_CUSTOM_LOCALE_TAG -> _activeVoiceLanguageFlow.value = getActiveVoiceLanguage()
             KEY_MESSAGES_JSON -> _messagesFlow.value = getMessages()
         }
     }
@@ -41,6 +56,14 @@ class SafeCallPreferences(context: Context) {
             _collegeModeFlow.value = value
         }
 
+    var selectedModeId: String
+        get() = prefs.getString(KEY_SELECTED_MODE_ID, DefaultSafeCallModes.list.first().id)
+            ?: DefaultSafeCallModes.list.first().id
+        private set(value) {
+            prefs.edit().putString(KEY_SELECTED_MODE_ID, value).apply()
+            _selectedModeIdFlow.value = value
+        }
+
     var studentStatus: String
         get() = prefs.getString(KEY_STUDENT_STATUS, DEFAULT_STATUS) ?: DEFAULT_STATUS
         set(value) {
@@ -48,9 +71,152 @@ class SafeCallPreferences(context: Context) {
             _studentStatusFlow.value = value
         }
 
+    var selectedLanguageId: String
+        get() = prefs.getString(KEY_SELECTED_LANGUAGE_ID, VoiceLanguages.ID_TELUGU)
+            ?: VoiceLanguages.ID_TELUGU
+        private set(value) {
+            prefs.edit().putString(KEY_SELECTED_LANGUAGE_ID, value).apply()
+            _activeVoiceLanguageFlow.value = getActiveVoiceLanguage()
+        }
+
+    fun selectLanguage(languageId: String) {
+        selectedLanguageId = languageId
+    }
+
+    fun saveCustomVoiceMessage(
+        greetingTemplate: String,
+        closingMessage: String,
+        localeTag: String
+    ) {
+        val cleanGreeting = greetingTemplate.trim().ifEmpty {
+            VoiceLanguages.builtInList.first().greetingTemplate
+        }
+        val cleanClosing = closingMessage.trim().ifEmpty {
+            VoiceLanguages.builtInList.first().closingMessage
+        }
+        val cleanLocale = localeTag.trim().ifEmpty { "te-IN" }
+
+        prefs.edit()
+            .putString(KEY_SELECTED_LANGUAGE_ID, VoiceLanguages.ID_CUSTOM)
+            .putString(KEY_CUSTOM_GREETING, cleanGreeting)
+            .putString(KEY_CUSTOM_CLOSING, cleanClosing)
+            .putString(KEY_CUSTOM_LOCALE_TAG, cleanLocale)
+            .apply()
+        _activeVoiceLanguageFlow.value = getActiveVoiceLanguage()
+    }
+
+    fun getActiveVoiceLanguage(): VoiceLanguageOption {
+        val langId = selectedLanguageId
+        if (langId == VoiceLanguages.ID_CUSTOM) {
+            val defaultTelugu = VoiceLanguages.builtInList.first()
+            val customGreeting = prefs.getString(KEY_CUSTOM_GREETING, null)
+                ?.takeIf { it.isNotBlank() }
+                ?: defaultTelugu.greetingTemplate
+            val customClosing = prefs.getString(KEY_CUSTOM_CLOSING, null)
+                ?.takeIf { it.isNotBlank() }
+                ?: defaultTelugu.closingMessage
+            val customLocale = prefs.getString(KEY_CUSTOM_LOCALE_TAG, null)
+                ?.takeIf { it.isNotBlank() }
+                ?: "te-IN"
+            return VoiceLanguageOption(
+                id = VoiceLanguages.ID_CUSTOM,
+                displayName = "Custom Language",
+                shortLabel = "Custom",
+                localeTag = customLocale,
+                greetingTemplate = customGreeting,
+                closingMessage = customClosing
+            )
+        }
+        return VoiceLanguages.findBuiltIn(langId) ?: VoiceLanguages.builtInList.first()
+    }
+
+    fun getAllModes(): List<SafeCallMode> {
+        return DefaultSafeCallModes.list + getCustomModes()
+    }
+
+    fun getActiveMode(): SafeCallMode {
+        val currentId = selectedModeId
+        return getAllModes().firstOrNull { it.id == currentId }
+            ?: DefaultSafeCallModes.list.first()
+    }
+
+    fun selectMode(modeId: String) {
+        val mode = getAllModes().firstOrNull { it.id == modeId } ?: return
+        selectedModeId = mode.id
+        studentStatus = mode.defaultStatus
+    }
+
+    fun addCustomMode(
+        name: String,
+        defaultStatus: String,
+        iconKey: String = SafeCallMode.ICON_CUSTOM
+    ): SafeCallMode {
+        val cleanName = name.trim().ifEmpty { "Custom Mode" }
+        val cleanStatus = defaultStatus.trim().ifEmpty { cleanName }
+        val newMode = SafeCallMode(
+            id = "custom_${System.currentTimeMillis()}",
+            name = cleanName,
+            defaultStatus = cleanStatus,
+            iconKey = iconKey,
+            isBuiltIn = false
+        )
+        val updatedCustom = getCustomModes() + newMode
+        saveCustomModes(updatedCustom)
+        selectedModeId = newMode.id
+        studentStatus = newMode.defaultStatus
+        return newMode
+    }
+
+    fun deleteCustomMode(modeId: String) {
+        val updatedCustom = getCustomModes().filterNot { it.id == modeId }
+        saveCustomModes(updatedCustom)
+        if (selectedModeId == modeId) {
+            val fallback = DefaultSafeCallModes.list.first()
+            selectedModeId = fallback.id
+            studentStatus = fallback.defaultStatus
+        }
+    }
+
+    private fun getCustomModes(): List<SafeCallMode> {
+        val rawJson = prefs.getString(KEY_CUSTOM_MODES_JSON, null) ?: return emptyList()
+        return runCatching {
+            val array = JSONArray(rawJson)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    add(
+                        SafeCallMode(
+                            id = obj.optString("id"),
+                            name = obj.optString("name", "Custom Mode"),
+                            defaultStatus = obj.optString("defaultStatus", DEFAULT_STATUS),
+                            iconKey = obj.optString("iconKey", SafeCallMode.ICON_CUSTOM),
+                            isBuiltIn = false
+                        )
+                    )
+                }
+            }
+        }.getOrElse { emptyList() }
+    }
+
+    private fun saveCustomModes(modes: List<SafeCallMode>) {
+        val array = JSONArray()
+        modes.forEach { mode ->
+            array.put(
+                JSONObject().apply {
+                    put("id", mode.id)
+                    put("name", mode.name)
+                    put("defaultStatus", mode.defaultStatus)
+                    put("iconKey", mode.iconKey)
+                }
+            )
+        }
+        prefs.edit().putString(KEY_CUSTOM_MODES_JSON, array.toString()).apply()
+        _modesFlow.value = getAllModes()
+    }
+
     fun getEffectiveStatus(): String {
         val current = studentStatus.trim()
-        return current.ifEmpty { DEFAULT_STATUS }
+        return current.ifEmpty { getActiveMode().defaultStatus }
     }
 
     fun getMessages(): List<ParentMessage> {
@@ -118,6 +284,12 @@ class SafeCallPreferences(context: Context) {
         const val PREFS_NAME = "safecall_prefs"
         const val KEY_COLLEGE_MODE = "college_mode_on"
         const val KEY_STUDENT_STATUS = "student_status"
+        const val KEY_SELECTED_MODE_ID = "selected_mode_id"
+        const val KEY_CUSTOM_MODES_JSON = "custom_modes_json"
+        const val KEY_SELECTED_LANGUAGE_ID = "selected_language_id"
+        const val KEY_CUSTOM_GREETING = "custom_greeting_template"
+        const val KEY_CUSTOM_CLOSING = "custom_closing_message"
+        const val KEY_CUSTOM_LOCALE_TAG = "custom_locale_tag"
         const val KEY_MESSAGES_JSON = "parent_messages_json"
         const val DEFAULT_STATUS = "Lab Session lo unna"
     }

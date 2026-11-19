@@ -10,7 +10,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.AndroidViewModel
 import com.example.AutoAnswerService
 import com.example.data.ParentMessage
+import com.example.data.SafeCallMode
 import com.example.data.SafeCallPreferences
+import com.example.data.VoiceLanguageOption
 import com.example.service.AutoAnswerUiState
 import com.example.service.CallPipelineState
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -45,6 +47,9 @@ class SafeCallViewModel(application: Application) : AndroidViewModel(application
 
     val isCollegeModeOn: StateFlow<Boolean> = prefs.collegeModeFlow
     val studentStatus: StateFlow<String> = prefs.studentStatusFlow
+    val modes: StateFlow<List<SafeCallMode>> = prefs.modesFlow
+    val selectedModeId: StateFlow<String> = prefs.selectedModeIdFlow
+    val activeVoiceLanguage: StateFlow<VoiceLanguageOption> = prefs.activeVoiceLanguageFlow
     val messages: StateFlow<List<ParentMessage>> = prefs.messagesFlow
     val pipelineState: StateFlow<AutoAnswerUiState> = CallPipelineState.state
 
@@ -98,11 +103,48 @@ class SafeCallViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun selectMode(modeId: String) {
+        prefs.selectMode(modeId)
+        if (prefs.isCollegeModeOn) {
+            startMonitorService()
+        }
+    }
+
+    fun addCustomMode(name: String, defaultStatus: String, iconKey: String) {
+        prefs.addCustomMode(name = name, defaultStatus = defaultStatus, iconKey = iconKey)
+        if (prefs.isCollegeModeOn) {
+            startMonitorService()
+        }
+    }
+
+    fun deleteCustomMode(modeId: String) {
+        prefs.deleteCustomMode(modeId)
+        if (prefs.isCollegeModeOn) {
+            startMonitorService()
+        }
+    }
+
     fun updateStudentStatus(newStatus: String) {
         prefs.studentStatus = newStatus
         if (prefs.isCollegeModeOn) {
             startMonitorService()
         }
+    }
+
+    fun selectLanguage(languageId: String) {
+        prefs.selectLanguage(languageId)
+    }
+
+    fun saveCustomVoiceMessage(
+        greetingTemplate: String,
+        closingMessage: String,
+        localeTag: String
+    ) {
+        prefs.saveCustomVoiceMessage(
+            greetingTemplate = greetingTemplate,
+            closingMessage = closingMessage,
+            localeTag = localeTag
+        )
     }
 
     fun startFakeCallTest(callerName: String, callerNumber: String) {

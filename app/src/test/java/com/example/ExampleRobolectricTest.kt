@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.ParentMessage
 import com.example.data.SafeCallPreferences
+import com.example.data.VoiceLanguages
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -74,5 +75,58 @@ class ExampleRobolectricTest {
 
         prefs.clearAllMessages()
         assertEquals(0, SafeCallPreferences(context).getMessages().size)
+    }
+
+    @Test
+    fun `built-in and custom modes persist and switch student status`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = SafeCallPreferences(context)
+
+        // Built-in mode switch updates status
+        prefs.selectMode("exam")
+        assertEquals("exam", prefs.selectedModeId)
+        assertEquals("Exam Hall lo unna", prefs.studentStatus)
+
+        // Add custom mode
+        val custom = prefs.addCustomMode(
+            name = "Tuition Mode",
+            defaultStatus = "Maths Tuition lo unna",
+            iconKey = "study"
+        )
+        val reloaded = SafeCallPreferences(context)
+        assertEquals(custom.id, reloaded.selectedModeId)
+        assertEquals("Maths Tuition lo unna", reloaded.studentStatus)
+        assertTrue(reloaded.getAllModes().any { it.name == "Tuition Mode" })
+
+        // Delete custom mode falls back cleanly
+        reloaded.deleteCustomMode(custom.id)
+        assertEquals("college", SafeCallPreferences(context).selectedModeId)
+    }
+
+    @Test
+    fun `voice language defaults to Telugu and supports switching or custom message`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = SafeCallPreferences(context)
+
+        // Default is Telugu
+        assertEquals(VoiceLanguages.ID_TELUGU, prefs.getActiveVoiceLanguage().id)
+        assertTrue(prefs.getActiveVoiceLanguage().formatGreeting("Lab").contains("నమస్కారం"))
+
+        // Switch to Hindi
+        prefs.selectLanguage(VoiceLanguages.ID_HINDI)
+        assertEquals("hi-IN", SafeCallPreferences(context).getActiveVoiceLanguage().localeTag)
+
+        // Save custom message in any language
+        prefs.saveCustomVoiceMessage(
+            greetingTemplate = "Namaskaram, {status} lo unnanu, beep tarvata cheppandi.",
+            closingMessage = "Thank you amma.",
+            localeTag = "te-IN"
+        )
+        val customLang = SafeCallPreferences(context).getActiveVoiceLanguage()
+        assertEquals(VoiceLanguages.ID_CUSTOM, customLang.id)
+        assertEquals(
+            "Namaskaram, Exam Hall lo unnanu, beep tarvata cheppandi.",
+            customLang.formatGreeting("Exam Hall")
+        )
     }
 }

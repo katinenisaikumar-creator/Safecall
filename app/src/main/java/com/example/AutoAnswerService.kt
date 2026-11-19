@@ -213,26 +213,31 @@ class AutoAnswerService : Service() {
             }
 
             val studentStatus = prefs.getEffectiveStatus()
-            val greetingPrompt =
-                "Hello, he is currently in $studentStatus. He is busy. " +
-                    "Please tell your message after beep, I will note and send to him."
+            val voiceLang = prefs.getActiveVoiceLanguage()
+            val greetingDisplayText = voiceLang.formatGreeting(studentStatus)
+            val greetingFallbackText = voiceLang.formatRomanizedGreeting(studentStatus)
 
-            // Step 3: Speak greeting via TextToSpeech
+            // Step 3: Speak greeting via TextToSpeech in selected language
             CallPipelineState.update(
                 AutoAnswerUiState.SpeakingGreeting(
                     callerDisplay = finalCallerDisplay,
-                    spokenText = greetingPrompt,
+                    spokenText = greetingDisplayText,
                     isSimulated = isSimulated
                 )
             )
-            speakWithTts(greetingPrompt)
+            speakWithTts(
+                primaryText = greetingDisplayText,
+                fallbackRomanizedText = greetingFallbackText,
+                localeTag = voiceLang.localeTag
+            )
 
             // Step 4: Play beep cue before listening
             playBeepCue()
 
-            // Step 5: Listen for 6 seconds using SpeechRecognizer
+            // Step 5: Listen for 6 seconds using SpeechRecognizer in selected locale
             val capturedTranscript = listenForSixSeconds(
                 callerDisplay = finalCallerDisplay,
+                localeTag = voiceLang.localeTag,
                 isSimulated = isSimulated
             )
 
@@ -252,8 +257,8 @@ class AutoAnswerService : Service() {
             prefs.addMessage(newMessage)
             postNewMessageNotification(newMessage)
 
-            // Step 7: Speak closing confirmation
-            val closingPrompt = "Thank you, message noted. He will call you back when free."
+            // Step 7: Speak closing confirmation in selected language
+            val closingDisplayText = voiceLang.closingMessage
             CallPipelineState.update(
                 AutoAnswerUiState.SpeakingClosing(
                     callerDisplay = finalCallerDisplay,
@@ -261,7 +266,11 @@ class AutoAnswerService : Service() {
                     isSimulated = isSimulated
                 )
             )
-            speakWithTts(closingPrompt)
+            speakWithTts(
+                primaryText = closingDisplayText,
+                fallbackRomanizedText = voiceLang.romanizedClosingFallback,
+                localeTag = voiceLang.localeTag
+            )
 
             // Step 8: Cut the call using TelecomManager (only for real incoming calls)
             if (!isSimulated) {
@@ -325,7 +334,11 @@ class AutoAnswerService : Service() {
         }
     }
 
-    private suspend fun speakWithTts(text: String) {
+    private suspend fun speakWithTts(
+        primaryText: String,
+        fallbackRomanizedText: String,
+        localeTag: String
+    ) {
         val tts = ensureTtsInitialized()
         if (tts == null) {
             Log.w(TAG, "TTS unavailable, falling back to brief pause")
@@ -333,8 +346,26 @@ class AutoAnswerService : Service() {
             return
         }
 
+        val targetLocale = Locale.forLanguageTag(localeTag)
+        val langResult = tts.setLanguage(targetLocale)
+        val textToSpeak = if (
+            langResult == TextToSpeech.LANG_MISSING_DATA ||
+            langResult == TextToSpeech.LANG_NOT_SUPPORTED
+        ) {
+            val indianEnglish = Locale("en", "IN")
+            val enResult = tts.setLanguage(indianEnglish)
+            if (enResult == TextToSpeech.LANG_MISSING_DATA ||
+                enResult == TextToSpeech.LANG_NOT_SUPPORTED
+            ) {
+                tts.setLanguage(Locale.US)
+            }
+            fallbackRomanizedText
+        } else {
+            primaryText
+        }
+
         val utteranceId = UUID.randomUUID().toString()
-        withTimeoutOrNull(14_000L) {
+        withTimeoutOrNull(18_000L) {
             suspendCancellableCoroutine<Unit> { cont ->
                 tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                     override fun onStart(id: String?) = Unit
@@ -362,7 +393,7 @@ class AutoAnswerService : Service() {
                 val params = Bundle().apply {
                     putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
                 }
-                val result = tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
+                val result = tts.speak(textToSpeak, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
                 if (result != TextToSpeech.SUCCESS && cont.isActive) {
                     cont.resume(Unit)
                 }
@@ -378,13 +409,6 @@ class AutoAnswerService : Service() {
                 var instance: TextToSpeech? = null
                 instance = TextToSpeech(applicationContext) { status ->
                     if (status == TextToSpeech.SUCCESS) {
-                        val indianEnglish = Locale("en", "IN")
-                        val langResult = instance?.setLanguage(indianEnglish)
-                        if (langResult == TextToSpeech.LANG_MISSING_DATA ||
-                            langResult == TextToSpeech.LANG_NOT_SUPPORTED
-                        ) {
-                            instance?.setLanguage(Locale.US)
-                        }
                         instance?.setSpeechRate(0.95f)
                         instance?.setAudioAttributes(
                             AudioAttributes.Builder()
@@ -420,6 +444,7 @@ class AutoAnswerService : Service() {
 
     private suspend fun listenForSixSeconds(
         callerDisplay: String,
+        localeTag: String,
         isSimulated: Boolean
     ): String {
         val hasMicPermission = ContextCompat.checkSelfPermission(
@@ -524,7 +549,8 @@ class AutoAnswerService : Service() {
                         RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                         RecognizerIntent.LANGUAGE_MODEL_FREE_FORM
                     )
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, localeTag)
+                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, localeTag)
                     putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
                     putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
                     putExtra(
@@ -610,10 +636,11 @@ class AutoAnswerService : Service() {
         )
 
         val statusText = prefs.getEffectiveStatus()
+        val activeModeName = prefs.getActiveMode().name
         val title = if (isTesting) {
             "SafeCall • Running Fake Call Test"
         } else {
-            "SafeCall • College Mode Active"
+            "SafeCall • $activeModeName Active"
         }
         val body = "Status: $statusText — Auto-answering calls in 3s"
 

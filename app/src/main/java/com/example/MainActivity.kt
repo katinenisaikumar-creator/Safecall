@@ -36,6 +36,9 @@ class MainActivity : ComponentActivity() {
         setContent {
             val isCollegeModeOn by viewModel.isCollegeModeOn.collectAsStateWithLifecycle()
             val studentStatus by viewModel.studentStatus.collectAsStateWithLifecycle()
+            val modes by viewModel.modes.collectAsStateWithLifecycle()
+            val selectedModeId by viewModel.selectedModeId.collectAsStateWithLifecycle()
+            val activeVoiceLanguage by viewModel.activeVoiceLanguage.collectAsStateWithLifecycle()
             val messages by viewModel.messages.collectAsStateWithLifecycle()
             val pipelineState by viewModel.pipelineState.collectAsStateWithLifecycle()
             val systemHealth by viewModel.systemHealth.collectAsStateWithLifecycle()
@@ -71,6 +74,9 @@ class MainActivity : ComponentActivity() {
                 SafeCallScreen(
                     isCollegeModeOn = isCollegeModeOn,
                     studentStatus = studentStatus,
+                    modes = modes,
+                    selectedModeId = selectedModeId,
+                    activeVoiceLanguage = activeVoiceLanguage,
                     messages = messages,
                     pipelineState = pipelineState,
                     systemHealth = systemHealth,
@@ -79,6 +85,15 @@ class MainActivity : ComponentActivity() {
                             permissionLauncher.launch(viewModel.requiredRuntimePermissions())
                         }
                         viewModel.toggleCollegeMode()
+                    },
+                    onSelectMode = { viewModel.selectMode(it) },
+                    onAddCustomMode = { name, defaultStatus, iconKey ->
+                        viewModel.addCustomMode(name, defaultStatus, iconKey)
+                    },
+                    onDeleteCustomMode = { viewModel.deleteCustomMode(it) },
+                    onSelectLanguage = { viewModel.selectLanguage(it) },
+                    onSaveCustomVoiceMessage = { greeting, closing, localeTag ->
+                        viewModel.saveCustomVoiceMessage(greeting, closing, localeTag)
                     },
                     onUpdateStudentStatus = { viewModel.updateStudentStatus(it) },
                     onStartFakeCallTest = { name, number ->

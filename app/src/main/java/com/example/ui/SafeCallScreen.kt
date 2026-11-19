@@ -43,14 +43,21 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Assignment
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.BatteryAlert
 import androidx.compose.material.icons.filled.BatteryChargingFull
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.GraphicEq
+import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PhoneCallback
@@ -59,7 +66,9 @@ import androidx.compose.material.icons.filled.RecordVoiceOver
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Work
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Schedule
@@ -98,6 +107,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -107,6 +117,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
 import com.example.data.ParentMessage
+import com.example.data.SafeCallMode
+import com.example.data.VoiceLanguageOption
+import com.example.data.VoiceLanguages
 import com.example.service.AutoAnswerUiState
 import com.example.ui.theme.ActiveEmerald
 import com.example.ui.theme.ActiveEmeraldContainer
@@ -138,10 +151,18 @@ private val PresetStatuses = listOf(
 fun SafeCallScreen(
     isCollegeModeOn: Boolean,
     studentStatus: String,
+    modes: List<SafeCallMode>,
+    selectedModeId: String,
+    activeVoiceLanguage: VoiceLanguageOption,
     messages: List<ParentMessage>,
     pipelineState: AutoAnswerUiState,
     systemHealth: SystemHealthState,
     onToggleCollegeMode: () -> Unit,
+    onSelectMode: (String) -> Unit,
+    onAddCustomMode: (name: String, defaultStatus: String, iconKey: String) -> Unit,
+    onDeleteCustomMode: (String) -> Unit,
+    onSelectLanguage: (String) -> Unit,
+    onSaveCustomVoiceMessage: (greeting: String, closing: String, localeTag: String) -> Unit,
     onUpdateStudentStatus: (String) -> Unit,
     onStartFakeCallTest: (callerName: String, callerNumber: String) -> Unit,
     onCancelActiveCallFlow: () -> Unit,
@@ -153,6 +174,11 @@ fun SafeCallScreen(
     var showPermissionsSheet by remember { mutableStateOf(false) }
     var showFakeCallDialog by remember { mutableStateOf(false) }
     var showClearAllDialog by remember { mutableStateOf(false) }
+    var showAddModeDialog by remember { mutableStateOf(false) }
+    var showCustomLanguageDialog by remember { mutableStateOf(false) }
+    val activeMode = remember(modes, selectedModeId) {
+        modes.firstOrNull { it.id == selectedModeId } ?: modes.first()
+    }
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -179,8 +205,13 @@ fun SafeCallScreen(
                     ) {
                         HeroHeaderSection(
                             isCollegeModeOn = isCollegeModeOn,
+                            activeMode = activeMode,
+                            modes = modes,
                             systemHealth = systemHealth,
                             onToggleCollegeMode = onToggleCollegeMode,
+                            onSelectMode = onSelectMode,
+                            onDeleteCustomMode = onDeleteCustomMode,
+                            onOpenAddMode = { showAddModeDialog = true },
                             onOpenPermissions = { showPermissionsSheet = true }
                         )
                         Column(
@@ -193,7 +224,10 @@ fun SafeCallScreen(
                             )
                             StatusInputCard(
                                 studentStatus = studentStatus,
-                                onUpdateStatus = onUpdateStudentStatus
+                                activeVoiceLanguage = activeVoiceLanguage,
+                                onUpdateStatus = onUpdateStudentStatus,
+                                onSelectLanguage = onSelectLanguage,
+                                onOpenCustomLanguage = { showCustomLanguageDialog = true }
                             )
                             TestFakeCallCard(
                                 isRunning = pipelineState !is AutoAnswerUiState.Idle &&
@@ -225,8 +259,13 @@ fun SafeCallScreen(
                     item(key = "hero_header") {
                         HeroHeaderSection(
                             isCollegeModeOn = isCollegeModeOn,
+                            activeMode = activeMode,
+                            modes = modes,
                             systemHealth = systemHealth,
                             onToggleCollegeMode = onToggleCollegeMode,
+                            onSelectMode = onSelectMode,
+                            onDeleteCustomMode = onDeleteCustomMode,
+                            onOpenAddMode = { showAddModeDialog = true },
                             onOpenPermissions = { showPermissionsSheet = true }
                         )
                     }
@@ -255,7 +294,10 @@ fun SafeCallScreen(
                         ) {
                             StatusInputCard(
                                 studentStatus = studentStatus,
+                                activeVoiceLanguage = activeVoiceLanguage,
                                 onUpdateStatus = onUpdateStudentStatus,
+                                onSelectLanguage = onSelectLanguage,
+                                onOpenCustomLanguage = { showCustomLanguageDialog = true },
                                 modifier = Modifier.widthIn(max = 600.dp)
                             )
                         }
@@ -386,13 +428,39 @@ fun SafeCallScreen(
             }
         )
     }
+
+    if (showAddModeDialog) {
+        AddCustomModeDialog(
+            onDismiss = { showAddModeDialog = false },
+            onCreateMode = { name, defaultStatus, iconKey ->
+                showAddModeDialog = false
+                onAddCustomMode(name, defaultStatus, iconKey)
+            }
+        )
+    }
+
+    if (showCustomLanguageDialog) {
+        CustomVoiceLanguageDialog(
+            currentLanguage = activeVoiceLanguage,
+            onDismiss = { showCustomLanguageDialog = false },
+            onSave = { greeting, closing, localeTag ->
+                showCustomLanguageDialog = false
+                onSaveCustomVoiceMessage(greeting, closing, localeTag)
+            }
+        )
+    }
 }
 
 @Composable
 private fun HeroHeaderSection(
     isCollegeModeOn: Boolean,
+    activeMode: SafeCallMode,
+    modes: List<SafeCallMode>,
     systemHealth: SystemHealthState,
     onToggleCollegeMode: () -> Unit,
+    onSelectMode: (String) -> Unit,
+    onDeleteCustomMode: (String) -> Unit,
+    onOpenAddMode: () -> Unit,
     onOpenPermissions: () -> Unit
 ) {
     val headerBrush = Brush.verticalGradient(
@@ -413,7 +481,7 @@ private fun HeroHeaderSection(
             modifier = Modifier
                 .widthIn(max = 600.dp)
                 .align(Alignment.Center),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // Top Bar: Logo + Tagline + Permissions Pill
             Row(
@@ -506,18 +574,122 @@ private fun HeroHeaderSection(
                 }
             }
 
-            // BIG COLLEGE MODE ON / OFF BUTTON
+            // Mode Switcher Bar (College Mode, Exam Mode, Study Mode, Sleep Mode, + Add Mode)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                modes.forEach { mode ->
+                    val isSelected = mode.id == activeMode.id
+                    Surface(
+                        onClick = { onSelectMode(mode.id) },
+                        shape = RoundedCornerShape(50.dp),
+                        color = if (isSelected) SkyBlueAccent else PureWhite.copy(alpha = 0.14f),
+                        border = BorderStroke(
+                            1.dp,
+                            if (isSelected) SkyBlueAccent else PureWhite.copy(alpha = 0.24f)
+                        ),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("mode_chip_${mode.id}")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(
+                                start = 12.dp,
+                                end = if (!mode.isBuiltIn) 6.dp else 12.dp,
+                                top = 8.dp,
+                                bottom = 8.dp
+                            ),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = modeIcon(mode.iconKey),
+                                contentDescription = null,
+                                tint = if (isSelected) DeepNavy else PureWhite,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = mode.name,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (isSelected) DeepNavy else PureWhite
+                            )
+                            if (!mode.isBuiltIn) {
+                                IconButton(
+                                    onClick = { onDeleteCustomMode(mode.id) },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = "Remove ${mode.name}",
+                                        tint = if (isSelected) DeepNavy else PureWhite.copy(alpha = 0.85f),
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // "+ Add Mode" Pill
+                Surface(
+                    onClick = onOpenAddMode,
+                    shape = RoundedCornerShape(50.dp),
+                    color = PureWhite.copy(alpha = 0.1f),
+                    border = BorderStroke(1.dp, SkyBlueAccent.copy(alpha = 0.7f)),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("add_mode_button")
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Add,
+                            contentDescription = "Add new mode",
+                            tint = SkyBlueAccent,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Add Mode",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = SkyBlueAccent
+                        )
+                    }
+                }
+            }
+
+            // BIG ACTIVE MODE ON / OFF BUTTON
             BigCollegeModeButton(
                 isCollegeModeOn = isCollegeModeOn,
+                activeMode = activeMode,
                 onClick = onToggleCollegeMode
             )
         }
     }
 }
 
+private fun modeIcon(iconKey: String): ImageVector {
+    return when (iconKey) {
+        SafeCallMode.ICON_SCHOOL -> Icons.Filled.School
+        SafeCallMode.ICON_EXAM -> Icons.Filled.Assignment
+        SafeCallMode.ICON_STUDY -> Icons.Filled.MenuBook
+        SafeCallMode.ICON_SLEEP -> Icons.Filled.Bedtime
+        SafeCallMode.ICON_TRAVEL -> Icons.Filled.DirectionsCar
+        SafeCallMode.ICON_WORK -> Icons.Filled.Work
+        else -> Icons.Filled.AutoAwesome
+    }
+}
+
 @Composable
 private fun BigCollegeModeButton(
     isCollegeModeOn: Boolean,
+    activeMode: SafeCallMode,
     onClick: () -> Unit
 ) {
     val containerColor by animateColorAsState(
@@ -541,6 +713,8 @@ private fun BigCollegeModeButton(
         ),
         label = "pulse_scale"
     )
+
+    val modeTitle = "${activeMode.name.uppercase(Locale.getDefault())}: ${if (isCollegeModeOn) "ON" else "OFF"}"
 
     Surface(
         onClick = onClick,
@@ -584,7 +758,7 @@ private fun BigCollegeModeButton(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.School,
+                        imageVector = modeIcon(activeMode.iconKey),
                         contentDescription = null,
                         tint = if (isCollegeModeOn) PureWhite else RoyalBlue,
                         modifier = Modifier.size(28.dp)
@@ -593,11 +767,7 @@ private fun BigCollegeModeButton(
 
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
-                        text = if (isCollegeModeOn) {
-                            stringResource(R.string.college_mode_on)
-                        } else {
-                            stringResource(R.string.college_mode_off)
-                        },
+                        text = modeTitle,
                         style = MaterialTheme.typography.titleLarge,
                         color = contentColor
                     )
@@ -666,7 +836,7 @@ private fun LivePipelineCard(
 
             is AutoAnswerUiState.SpeakingClosing -> Quad(
                 "Saving & Closing Call",
-                "\"Thank you, message noted. He will call you back when free.\"",
+                "Closing voice message spoken & call ending...",
                 0.92f,
                 Icons.Filled.RecordVoiceOver
             )
@@ -789,11 +959,17 @@ private data class Quad<A, B, C, D>(
 @Composable
 private fun StatusInputCard(
     studentStatus: String,
+    activeVoiceLanguage: VoiceLanguageOption,
     onUpdateStatus: (String) -> Unit,
+    onSelectLanguage: (String) -> Unit,
+    onOpenCustomLanguage: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val effectivePreview = studentStatus.trim().ifEmpty {
         stringResource(R.string.default_student_status)
+    }
+    val localizedGreetingPreview = remember(activeVoiceLanguage, effectivePreview) {
+        activeVoiceLanguage.formatGreeting(effectivePreview)
     }
 
     Card(
@@ -862,7 +1038,78 @@ private fun StatusInputCard(
                 }
             }
 
-            // Live TTS preview box
+            HorizontalDivider()
+
+            // Parent Voice Language Picker
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Translate,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = "Parent Voice Language",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                TextButton(
+                    onClick = onOpenCustomLanguage,
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("edit_voice_message_button")
+                ) {
+                    Text("Custom Message")
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                VoiceLanguages.builtInList.forEach { lang ->
+                    val isSelected = activeVoiceLanguage.id == lang.id
+                    FilterChip(
+                        selected = isSelected,
+                        onClick = { onSelectLanguage(lang.id) },
+                        label = { Text(lang.shortLabel) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = DeepNavy,
+                            selectedLabelColor = PureWhite
+                        ),
+                        modifier = Modifier
+                            .minimumInteractiveComponentSize()
+                            .testTag("language_chip_${lang.id}")
+                    )
+                }
+                val isCustomSelected = activeVoiceLanguage.id == VoiceLanguages.ID_CUSTOM
+                FilterChip(
+                    selected = isCustomSelected,
+                    onClick = onOpenCustomLanguage,
+                    label = { Text("Custom") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = DeepNavy,
+                        selectedLabelColor = PureWhite
+                    ),
+                    modifier = Modifier
+                        .minimumInteractiveComponentSize()
+                        .testTag("language_chip_custom")
+                )
+            }
+
+            // Live TTS preview box in chosen language
             Surface(
                 shape = RoundedCornerShape(12.dp),
                 color = MaterialTheme.colorScheme.surfaceVariant
@@ -881,7 +1128,7 @@ private fun StatusInputCard(
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
-                        text = "Voice Reply: \"Hello, he is currently in $effectivePreview. He is busy. Please tell your message after beep...\"",
+                        text = "${activeVoiceLanguage.displayName}: \"$localizedGreetingPreview\"",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -1505,3 +1752,202 @@ private fun PermissionsBottomSheetContent(
         Spacer(modifier = Modifier.height(16.dp))
     }
 }
+
+@Composable
+private fun AddCustomModeDialog(
+    onDismiss: () -> Unit,
+    onCreateMode: (name: String, defaultStatus: String, iconKey: String) -> Unit
+) {
+    var modeName by remember { mutableStateOf("") }
+    var defaultStatus by remember { mutableStateOf("") }
+    var selectedIconKey by remember { mutableStateOf(SafeCallMode.ICON_CUSTOM) }
+
+    val iconChoices = listOf(
+        SafeCallMode.ICON_CUSTOM to "Custom",
+        SafeCallMode.ICON_TRAVEL to "Travel",
+        SafeCallMode.ICON_WORK to "Internship",
+        SafeCallMode.ICON_STUDY to "Tuition",
+        SafeCallMode.ICON_SLEEP to "Rest",
+        SafeCallMode.ICON_EXAM to "Test"
+    )
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.Add,
+                contentDescription = null,
+                tint = RoyalBlue
+            )
+        },
+        title = { Text("Add Custom Mode") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = modeName,
+                    onValueChange = { modeName = it },
+                    label = { Text("Mode Name") },
+                    placeholder = { Text("Ex: Tuition Mode, Driving Mode") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("custom_mode_name_input")
+                )
+
+                OutlinedTextField(
+                    value = defaultStatus,
+                    onValueChange = { defaultStatus = it },
+                    label = { Text("Busy Status Message") },
+                    placeholder = { Text("Ex: Tuition lo unna") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("custom_mode_status_input")
+                )
+
+                Text(
+                    text = "Choose Icon",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    iconChoices.forEach { (key, label) ->
+                        FilterChip(
+                            selected = selectedIconKey == key,
+                            onClick = { selectedIconKey = key },
+                            label = { Text(label) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = modeIcon(key),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = RoyalBlue,
+                                selectedLabelColor = PureWhite,
+                                selectedLeadingIconColor = PureWhite
+                            )
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onCreateMode(modeName, defaultStatus, selectedIconKey) },
+                enabled = modeName.trim().isNotEmpty(),
+                colors = ButtonDefaults.buttonColors(containerColor = RoyalBlue),
+                modifier = Modifier.testTag("confirm_add_mode_button")
+            ) {
+                Text("Save Mode")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+@Composable
+private fun CustomVoiceLanguageDialog(
+    currentLanguage: VoiceLanguageOption,
+    onDismiss: () -> Unit,
+    onSave: (greeting: String, closing: String, localeTag: String) -> Unit
+) {
+    var greetingText by remember { mutableStateOf(currentLanguage.greetingTemplate) }
+    var closingText by remember { mutableStateOf(currentLanguage.closingMessage) }
+    var selectedLocale by remember { mutableStateOf(currentLanguage.localeTag) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.Translate,
+                contentDescription = null,
+                tint = RoyalBlue
+            )
+        },
+        title = { Text("Custom Parent Voice Message") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Write the reply in any language your parents understand. Keep {status} where your current activity should be spoken.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    value = greetingText,
+                    onValueChange = { greetingText = it },
+                    label = { Text("Opening Voice Message") },
+                    minLines = 3,
+                    maxLines = 5,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("custom_greeting_input")
+                )
+
+                OutlinedTextField(
+                    value = closingText,
+                    onValueChange = { closingText = it },
+                    label = { Text("Closing Thank You Message") },
+                    minLines = 2,
+                    maxLines = 4,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("custom_closing_input")
+                )
+
+                Text(
+                    text = "Speech & Voice Locale",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    VoiceLanguages.speechLocaleChoices.forEach { (tag, label) ->
+                        FilterChip(
+                            selected = selectedLocale == tag,
+                            onClick = { selectedLocale = tag },
+                            label = { Text(label) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = RoyalBlue,
+                                selectedLabelColor = PureWhite
+                            )
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(greetingText, closingText, selectedLocale) },
+                enabled = greetingText.trim().isNotEmpty() && closingText.trim().isNotEmpty(),
+                colors = ButtonDefaults.buttonColors(containerColor = RoyalBlue),
+                modifier = Modifier.testTag("save_custom_language_button")
+            ) {
+                Text("Save Language")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
+
