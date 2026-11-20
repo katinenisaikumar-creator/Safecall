@@ -2,11 +2,23 @@ package com.example.data
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.example.telephony.ForwardingMode
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
 import org.json.JSONObject
+
+data class CloudVoiceConfig(
+    val backendBaseUrl: String = "",
+    val twilioNumber: String = "",
+    val forwardingMode: ForwardingMode = ForwardingMode.CONDITIONAL_NO_ANSWER,
+    val useCloudForwarding: Boolean = false,
+    val fcmToken: String = ""
+) {
+    val isForwardingReady: Boolean
+        get() = useCloudForwarding && twilioNumber.trim().isNotEmpty()
+}
 
 class SafeCallPreferences(context: Context) {
 
@@ -28,6 +40,9 @@ class SafeCallPreferences(context: Context) {
     private val _activeVoiceLanguageFlow = MutableStateFlow(getActiveVoiceLanguage())
     val activeVoiceLanguageFlow: StateFlow<VoiceLanguageOption> = _activeVoiceLanguageFlow.asStateFlow()
 
+    private val _cloudConfigFlow = MutableStateFlow(getCloudConfig())
+    val cloudConfigFlow: StateFlow<CloudVoiceConfig> = _cloudConfigFlow.asStateFlow()
+
     private val _messagesFlow = MutableStateFlow(getMessages())
     val messagesFlow: StateFlow<List<ParentMessage>> = _messagesFlow.asStateFlow()
 
@@ -41,6 +56,11 @@ class SafeCallPreferences(context: Context) {
             KEY_CUSTOM_GREETING,
             KEY_CUSTOM_CLOSING,
             KEY_CUSTOM_LOCALE_TAG -> _activeVoiceLanguageFlow.value = getActiveVoiceLanguage()
+            KEY_BACKEND_URL,
+            KEY_TWILIO_NUMBER,
+            KEY_FORWARDING_MODE,
+            KEY_USE_CLOUD_FORWARDING,
+            KEY_FCM_TOKEN -> _cloudConfigFlow.value = getCloudConfig()
             KEY_MESSAGES_JSON -> _messagesFlow.value = getMessages()
         }
     }
@@ -219,6 +239,39 @@ class SafeCallPreferences(context: Context) {
         return current.ifEmpty { getActiveMode().defaultStatus }
     }
 
+    fun getCloudConfig(): CloudVoiceConfig {
+        val modeName = prefs.getString(KEY_FORWARDING_MODE, ForwardingMode.CONDITIONAL_NO_ANSWER.name)
+        val mode = runCatching { ForwardingMode.valueOf(modeName ?: "") }
+            .getOrDefault(ForwardingMode.CONDITIONAL_NO_ANSWER)
+        return CloudVoiceConfig(
+            backendBaseUrl = prefs.getString(KEY_BACKEND_URL, "").orEmpty(),
+            twilioNumber = prefs.getString(KEY_TWILIO_NUMBER, "").orEmpty(),
+            forwardingMode = mode,
+            useCloudForwarding = prefs.getBoolean(KEY_USE_CLOUD_FORWARDING, false),
+            fcmToken = prefs.getString(KEY_FCM_TOKEN, "").orEmpty()
+        )
+    }
+
+    fun saveCloudConfig(
+        backendBaseUrl: String,
+        twilioNumber: String,
+        forwardingMode: ForwardingMode,
+        useCloudForwarding: Boolean
+    ) {
+        prefs.edit()
+            .putString(KEY_BACKEND_URL, backendBaseUrl.trim())
+            .putString(KEY_TWILIO_NUMBER, twilioNumber.trim())
+            .putString(KEY_FORWARDING_MODE, forwardingMode.name)
+            .putBoolean(KEY_USE_CLOUD_FORWARDING, useCloudForwarding)
+            .apply()
+        _cloudConfigFlow.value = getCloudConfig()
+    }
+
+    fun updateFcmToken(token: String) {
+        prefs.edit().putString(KEY_FCM_TOKEN, token).apply()
+        _cloudConfigFlow.value = getCloudConfig()
+    }
+
     fun getMessages(): List<ParentMessage> {
         val rawJson = prefs.getString(KEY_MESSAGES_JSON, null) ?: return emptyList()
         return runCatching {
@@ -234,6 +287,8 @@ class SafeCallPreferences(context: Context) {
                             messageText = obj.optString("messageText", ""),
                             studentStatusAtCall = obj.optString("studentStatusAtCall", DEFAULT_STATUS),
                             timestampMillis = obj.optLong("timestampMillis", 0L),
+                            recordingUrl = obj.optString("recordingUrl").takeIf { it.isNotBlank() },
+                            durationSeconds = obj.optInt("durationSeconds", 0),
                             isSimulated = obj.optBoolean("isSimulated", false)
                         )
                     )
@@ -268,6 +323,8 @@ class SafeCallPreferences(context: Context) {
                     put("messageText", msg.messageText)
                     put("studentStatusAtCall", msg.studentStatusAtCall)
                     put("timestampMillis", msg.timestampMillis)
+                    put("recordingUrl", msg.recordingUrl.orEmpty())
+                    put("durationSeconds", msg.durationSeconds)
                     put("isSimulated", msg.isSimulated)
                 }
             )
@@ -290,6 +347,11 @@ class SafeCallPreferences(context: Context) {
         const val KEY_CUSTOM_GREETING = "custom_greeting_template"
         const val KEY_CUSTOM_CLOSING = "custom_closing_message"
         const val KEY_CUSTOM_LOCALE_TAG = "custom_locale_tag"
+        const val KEY_BACKEND_URL = "cloud_backend_url"
+        const val KEY_TWILIO_NUMBER = "cloud_twilio_number"
+        const val KEY_FORWARDING_MODE = "cloud_forwarding_mode"
+        const val KEY_USE_CLOUD_FORWARDING = "cloud_use_forwarding"
+        const val KEY_FCM_TOKEN = "cloud_fcm_token"
         const val KEY_MESSAGES_JSON = "parent_messages_json"
         const val DEFAULT_STATUS = "Lab Session lo unna"
     }

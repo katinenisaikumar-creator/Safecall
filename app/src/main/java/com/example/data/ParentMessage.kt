@@ -9,5 +9,7 @@ data class ParentMessage(
     val messageText: String,
     val studentStatusAtCall: String,
     val timestampMillis: Long = System.currentTimeMillis(),
+    val recordingUrl: String? = null,
+    val durationSeconds: Int = 0,
     val isSimulated: Boolean = false
 )

@@ -53,6 +53,9 @@ import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.CallEnd
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DirectionsCar
@@ -60,12 +63,18 @@ import androidx.compose.material.icons.filled.GraphicEq
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PhoneCallback
+import androidx.compose.material.icons.filled.PhoneForwarded
 import androidx.compose.material.icons.filled.PhoneInTalk
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.RecordVoiceOver
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Translate
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Work
@@ -77,6 +86,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
@@ -92,6 +102,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.minimumInteractiveComponentSize
@@ -116,11 +127,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.audio.AudioPlaybackState
+import com.example.data.CloudVoiceConfig
 import com.example.data.ParentMessage
 import com.example.data.SafeCallMode
 import com.example.data.VoiceLanguageOption
 import com.example.data.VoiceLanguages
 import com.example.service.AutoAnswerUiState
+import com.example.telephony.ForwardingMode
 import com.example.ui.theme.ActiveEmerald
 import com.example.ui.theme.ActiveEmeraldContainer
 import com.example.ui.theme.ActiveEmeraldLight
@@ -154,9 +168,12 @@ fun SafeCallScreen(
     modes: List<SafeCallMode>,
     selectedModeId: String,
     activeVoiceLanguage: VoiceLanguageOption,
+    cloudConfig: CloudVoiceConfig,
     messages: List<ParentMessage>,
     pipelineState: AutoAnswerUiState,
+    playbackState: AudioPlaybackState,
     systemHealth: SystemHealthState,
+    cloudSyncStatus: String?,
     onToggleCollegeMode: () -> Unit,
     onSelectMode: (String) -> Unit,
     onAddCustomMode: (name: String, defaultStatus: String, iconKey: String) -> Unit,
@@ -164,6 +181,13 @@ fun SafeCallScreen(
     onSelectLanguage: (String) -> Unit,
     onSaveCustomVoiceMessage: (greeting: String, closing: String, localeTag: String) -> Unit,
     onUpdateStudentStatus: (String) -> Unit,
+    onSaveCloudConfig: (backendUrl: String, twilioNumber: String, forwardingMode: ForwardingMode, useCloudForwarding: Boolean) -> Unit,
+    onActivateForwardingNow: () -> Unit,
+    onDeactivateAllForwardingNow: () -> Unit,
+    onRefreshCloudInbox: () -> Unit,
+    onDismissCloudStatus: () -> Unit,
+    onToggleAudioPlayback: (messageId: String, url: String) -> Unit,
+    onStopAudioPlayback: () -> Unit,
     onStartFakeCallTest: (callerName: String, callerNumber: String) -> Unit,
     onCancelActiveCallFlow: () -> Unit,
     onDeleteMessage: (String) -> Unit,
@@ -176,6 +200,7 @@ fun SafeCallScreen(
     var showClearAllDialog by remember { mutableStateOf(false) }
     var showAddModeDialog by remember { mutableStateOf(false) }
     var showCustomLanguageDialog by remember { mutableStateOf(false) }
+    var showCloudSetupDialog by remember { mutableStateOf(false) }
     val activeMode = remember(modes, selectedModeId) {
         modes.firstOrNull { it.id == selectedModeId } ?: modes.first()
     }
@@ -207,6 +232,7 @@ fun SafeCallScreen(
                             isCollegeModeOn = isCollegeModeOn,
                             activeMode = activeMode,
                             modes = modes,
+                            cloudConfig = cloudConfig,
                             systemHealth = systemHealth,
                             onToggleCollegeMode = onToggleCollegeMode,
                             onSelectMode = onSelectMode,
@@ -229,6 +255,15 @@ fun SafeCallScreen(
                                 onSelectLanguage = onSelectLanguage,
                                 onOpenCustomLanguage = { showCustomLanguageDialog = true }
                             )
+                            CloudForwardingCard(
+                                cloudConfig = cloudConfig,
+                                cloudSyncStatus = cloudSyncStatus,
+                                onOpenSetup = { showCloudSetupDialog = true },
+                                onActivateNow = onActivateForwardingNow,
+                                onDeactivateAll = onDeactivateAllForwardingNow,
+                                onRefreshInbox = onRefreshCloudInbox,
+                                onDismissStatus = onDismissCloudStatus
+                            )
                             TestFakeCallCard(
                                 isRunning = pipelineState !is AutoAnswerUiState.Idle &&
                                     pipelineState !is AutoAnswerUiState.Completed,
@@ -239,6 +274,9 @@ fun SafeCallScreen(
 
                     MessagesPane(
                         messages = messages,
+                        playbackState = playbackState,
+                        onTogglePlayPause = onToggleAudioPlayback,
+                        onStopAudio = onStopAudioPlayback,
                         onDeleteMessage = onDeleteMessage,
                         onRequestClearAll = { showClearAllDialog = true },
                         modifier = Modifier
@@ -261,6 +299,7 @@ fun SafeCallScreen(
                             isCollegeModeOn = isCollegeModeOn,
                             activeMode = activeMode,
                             modes = modes,
+                            cloudConfig = cloudConfig,
                             systemHealth = systemHealth,
                             onToggleCollegeMode = onToggleCollegeMode,
                             onSelectMode = onSelectMode,
@@ -298,6 +337,26 @@ fun SafeCallScreen(
                                 onUpdateStatus = onUpdateStudentStatus,
                                 onSelectLanguage = onSelectLanguage,
                                 onOpenCustomLanguage = { showCustomLanguageDialog = true },
+                                modifier = Modifier.widthIn(max = 600.dp)
+                            )
+                        }
+                    }
+
+                    item(key = "cloud_forwarding") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CloudForwardingCard(
+                                cloudConfig = cloudConfig,
+                                cloudSyncStatus = cloudSyncStatus,
+                                onOpenSetup = { showCloudSetupDialog = true },
+                                onActivateNow = onActivateForwardingNow,
+                                onDeactivateAll = onDeactivateAllForwardingNow,
+                                onRefreshInbox = onRefreshCloudInbox,
+                                onDismissStatus = onDismissCloudStatus,
                                 modifier = Modifier.widthIn(max = 600.dp)
                             )
                         }
@@ -358,6 +417,9 @@ fun SafeCallScreen(
                             ) {
                                 ParentMessageCard(
                                     message = message,
+                                    playbackState = playbackState,
+                                    onTogglePlayPause = onToggleAudioPlayback,
+                                    onStopAudio = onStopAudioPlayback,
                                     onDelete = { onDeleteMessage(message.id) },
                                     modifier = Modifier.widthIn(max = 600.dp)
                                 )
@@ -449,6 +511,17 @@ fun SafeCallScreen(
             }
         )
     }
+
+    if (showCloudSetupDialog) {
+        CloudForwardingSetupDialog(
+            currentConfig = cloudConfig,
+            onDismiss = { showCloudSetupDialog = false },
+            onSave = { backendUrl, twilioNumber, forwardingMode, useCloudForwarding ->
+                showCloudSetupDialog = false
+                onSaveCloudConfig(backendUrl, twilioNumber, forwardingMode, useCloudForwarding)
+            }
+        )
+    }
 }
 
 @Composable
@@ -456,6 +529,7 @@ private fun HeroHeaderSection(
     isCollegeModeOn: Boolean,
     activeMode: SafeCallMode,
     modes: List<SafeCallMode>,
+    cloudConfig: CloudVoiceConfig,
     systemHealth: SystemHealthState,
     onToggleCollegeMode: () -> Unit,
     onSelectMode: (String) -> Unit,
@@ -668,6 +742,7 @@ private fun HeroHeaderSection(
             BigCollegeModeButton(
                 isCollegeModeOn = isCollegeModeOn,
                 activeMode = activeMode,
+                cloudConfig = cloudConfig,
                 onClick = onToggleCollegeMode
             )
         }
@@ -690,6 +765,7 @@ private fun modeIcon(iconKey: String): ImageVector {
 private fun BigCollegeModeButton(
     isCollegeModeOn: Boolean,
     activeMode: SafeCallMode,
+    cloudConfig: CloudVoiceConfig,
     onClick: () -> Unit
 ) {
     val containerColor by animateColorAsState(
@@ -772,10 +848,15 @@ private fun BigCollegeModeButton(
                         color = contentColor
                     )
                     Text(
-                        text = if (isCollegeModeOn) {
-                            stringResource(R.string.college_mode_on_desc)
-                        } else {
-                            stringResource(R.string.college_mode_off_desc)
+                        text = when {
+                            cloudConfig.isForwardingReady && isCollegeModeOn ->
+                                "Cloud forwarding (${cloudConfig.forwardingMode.label}) active -> Twilio speaks & records"
+                            cloudConfig.isForwardingReady && !isCollegeModeOn ->
+                                "Tap ON to dial ${cloudConfig.forwardingMode.codePrefix}... forwarding"
+                            isCollegeModeOn ->
+                                stringResource(R.string.college_mode_on_desc)
+                            else ->
+                                stringResource(R.string.college_mode_off_desc)
                         },
                         style = MaterialTheme.typography.bodySmall,
                         color = contentColor.copy(alpha = 0.82f)
@@ -1147,7 +1228,7 @@ private fun StatusInputCard(
                     modifier = Modifier.size(15.dp)
                 )
                 Text(
-                    text = "Real Call Note: Android blocks apps from injecting audio directly into the cellular line, so SafeCall plays via Loudspeaker at full volume for mic pickup. Phones with strong Echo Cancellation may still filter speaker audio.",
+                    text = "With Cloud Forwarding enabled, Twilio speaks this exact message clearly on the live cellular voice line, plays a beep, records your parent's reply, and pushes audio + transcript here.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1225,6 +1306,9 @@ private fun TestFakeCallCard(
 @Composable
 private fun MessagesPane(
     messages: List<ParentMessage>,
+    playbackState: AudioPlaybackState,
+    onTogglePlayPause: (String, String) -> Unit,
+    onStopAudio: () -> Unit,
     onDeleteMessage: (String) -> Unit,
     onRequestClearAll: () -> Unit,
     modifier: Modifier = Modifier
@@ -1248,6 +1332,9 @@ private fun MessagesPane(
                 items(items = messages, key = { it.id }) { msg ->
                     ParentMessageCard(
                         message = msg,
+                        playbackState = playbackState,
+                        onTogglePlayPause = onTogglePlayPause,
+                        onStopAudio = onStopAudio,
                         onDelete = { onDeleteMessage(msg.id) }
                     )
                 }
@@ -1354,6 +1441,9 @@ private fun EmptyMessagesCard(modifier: Modifier = Modifier) {
 @Composable
 private fun ParentMessageCard(
     message: ParentMessage,
+    playbackState: AudioPlaybackState,
+    onTogglePlayPause: (String, String) -> Unit,
+    onStopAudio: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -1424,6 +1514,18 @@ private fun ParentMessageCard(
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }
+                            } else if (!message.recordingUrl.isNullOrBlank()) {
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = ActiveEmeraldContainer
+                                ) {
+                                    Text(
+                                        text = "VOICE",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = ActiveEmerald,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
                             }
                         }
                         if (message.callerNumber.isNotBlank() &&
@@ -1463,6 +1565,17 @@ private fun ParentMessageCard(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(14.dp)
+                )
+            }
+
+            if (!message.recordingUrl.isNullOrBlank()) {
+                VoiceRecordingPlayerBar(
+                    messageId = message.id,
+                    recordingUrl = message.recordingUrl,
+                    fallbackDurationSeconds = message.durationSeconds,
+                    playbackState = playbackState,
+                    onTogglePlayPause = { onTogglePlayPause(message.id, message.recordingUrl) },
+                    onStop = onStopAudio
                 )
             }
 
@@ -1967,5 +2080,463 @@ private fun CustomVoiceLanguageDialog(
         }
     )
 }
+
+@Composable
+private fun VoiceRecordingPlayerBar(
+    messageId: String,
+    recordingUrl: String,
+    fallbackDurationSeconds: Int,
+    playbackState: AudioPlaybackState,
+    onTogglePlayPause: () -> Unit,
+    onStop: () -> Unit
+) {
+    val isThisMessage = playbackState.activeMessageId == messageId
+    val isPreparing = isThisMessage && playbackState.isPreparing
+    val isPlaying = isThisMessage && playbackState.isPlaying
+    val totalMs = when {
+        isThisMessage && playbackState.durationMs > 0 -> playbackState.durationMs
+        fallbackDurationSeconds > 0 -> fallbackDurationSeconds * 1000
+        else -> 0
+    }
+    val currentMs = if (isThisMessage) playbackState.currentPositionMs else 0
+    val progress = if (totalMs > 0) (currentMs.toFloat() / totalMs.toFloat()).coerceIn(0f, 1f) else 0f
+
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = SoftBlueTint,
+        border = BorderStroke(1.dp, RoyalBlue.copy(alpha = 0.25f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Surface(
+                    onClick = onTogglePlayPause,
+                    shape = CircleShape,
+                    color = RoyalBlue,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .testTag("play_recording_button_$messageId")
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        if (isPreparing) {
+                            CircularProgressIndicator(
+                                color = PureWhite,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause recording" else "Play recording",
+                                tint = PureWhite,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
+
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isPlaying) "Playing parent voice..." else "Listen to Voice Recording",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = DeepNavy,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            text = "${formatAudioDuration(currentMs / 1000)} / ${formatAudioDuration(totalMs / 1000)}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = RoyalBlue
+                        )
+                    }
+
+                    LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(50.dp)),
+                        color = RoyalBlue,
+                        trackColor = RoyalBlue.copy(alpha = 0.18f)
+                    )
+                }
+
+                if (isThisMessage && (isPlaying || isPreparing || currentMs > 0)) {
+                    IconButton(
+                        onClick = onStop,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Stop,
+                            contentDescription = "Stop audio",
+                            tint = DeepNavy
+                        )
+                    }
+                }
+            }
+
+            if (isThisMessage && !playbackState.errorMessage.isNullOrBlank()) {
+                Text(
+                    text = playbackState.errorMessage,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = DangerRed
+                )
+            }
+        }
+    }
+}
+
+private fun formatAudioDuration(totalSeconds: Int): String {
+    val safe = totalSeconds.coerceAtLeast(0)
+    val mins = safe / 60
+    val secs = safe % 60
+    return "$mins:${secs.toString().padStart(2, '0')}"
+}
+
+@Composable
+private fun CloudForwardingCard(
+    cloudConfig: CloudVoiceConfig,
+    cloudSyncStatus: String?,
+    onOpenSetup: () -> Unit,
+    onActivateNow: () -> Unit,
+    onDeactivateAll: () -> Unit,
+    onRefreshInbox: () -> Unit,
+    onDismissStatus: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isReady = cloudConfig.isForwardingReady
+
+    Card(
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(
+            1.dp,
+            if (isReady) ActiveEmerald.copy(alpha = 0.5f) else MaterialTheme.colorScheme.outline
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(if (isReady) ActiveEmeraldContainer else SoftBlueTint),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isReady) Icons.Filled.CloudDone else Icons.Filled.CloudSync,
+                            contentDescription = null,
+                            tint = if (isReady) ActiveEmerald else RoyalBlue
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "Twilio Cloud Voice & Forwarding",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Text(
+                            text = if (isReady) {
+                                "${cloudConfig.forwardingMode.label} -> ${cloudConfig.twilioNumber}"
+                            } else {
+                                "Real SIM call audio via Twilio + USSD forwarding"
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(50.dp),
+                    color = if (isReady) ActiveEmeraldContainer else WarningAmberContainer
+                ) {
+                    Text(
+                        text = if (isReady) "Cloud ON" else "Setup",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isReady) ActiveEmerald else WarningAmber,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+            }
+
+            if (!cloudSyncStatus.isNullOrBlank()) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = SoftBlueTint
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = cloudSyncStatus,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DeepNavy,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = onDismissStatus,
+                            modifier = Modifier.size(28.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Dismiss status",
+                                tint = DeepNavy,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilledTonalButton(
+                    onClick = onOpenSetup,
+                    modifier = Modifier
+                        .weight(1f)
+                        .minimumInteractiveComponentSize()
+                        .testTag("cloud_setup_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Settings,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(if (isReady) "Edit Cloud" else "Configure")
+                }
+
+                OutlinedButton(
+                    onClick = onRefreshInbox,
+                    enabled = cloudConfig.backendBaseUrl.isNotBlank(),
+                    modifier = Modifier
+                        .weight(1f)
+                        .minimumInteractiveComponentSize()
+                        .testTag("cloud_sync_refresh_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Refresh,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Sync Inbox")
+                }
+            }
+
+            if (cloudConfig.twilioNumber.isNotBlank()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = onActivateNow,
+                        colors = ButtonDefaults.buttonColors(containerColor = RoyalBlue),
+                        modifier = Modifier
+                            .weight(1f)
+                            .minimumInteractiveComponentSize()
+                            .testTag("dial_forward_now_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PhoneForwarded,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Forward (${cloudConfig.forwardingMode.codePrefix})")
+                    }
+
+                    OutlinedButton(
+                        onClick = onDeactivateAll,
+                        modifier = Modifier
+                            .weight(0.85f)
+                            .minimumInteractiveComponentSize()
+                            .testTag("cancel_all_forwarding_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.CloudOff,
+                            contentDescription = null,
+                            tint = DangerRed,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Stop ##002#", color = DangerRed)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CloudForwardingSetupDialog(
+    currentConfig: CloudVoiceConfig,
+    onDismiss: () -> Unit,
+    onSave: (
+        backendUrl: String,
+        twilioNumber: String,
+        forwardingMode: ForwardingMode,
+        useCloudForwarding: Boolean
+    ) -> Unit
+) {
+    var backendUrl by remember { mutableStateOf(currentConfig.backendBaseUrl) }
+    var twilioNumber by remember { mutableStateOf(currentConfig.twilioNumber) }
+    var selectedMode by remember { mutableStateOf(currentConfig.forwardingMode) }
+    var useCloud by remember { mutableStateOf(currentConfig.useCloudForwarding) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                imageVector = Icons.Filled.PhoneForwarded,
+                contentDescription = null,
+                tint = RoyalBlue
+            )
+        },
+        title = { Text("Cloud Call Forwarding Setup") },
+        text = {
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Enable Cloud Forwarding",
+                            style = MaterialTheme.typography.titleSmall
+                        )
+                        Text(
+                            text = "Toggling College Mode dials USSD forwarding to Twilio",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = useCloud,
+                        onCheckedChange = { useCloud = it },
+                        modifier = Modifier.testTag("cloud_forwarding_switch")
+                    )
+                }
+
+                OutlinedTextField(
+                    value = backendUrl,
+                    onValueChange = { backendUrl = it },
+                    label = { Text("Backend Server URL (ngrok / Render)") },
+                    placeholder = { Text("https://your-app.ngrok-free.app") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("cloud_backend_url_input")
+                )
+
+                OutlinedTextField(
+                    value = twilioNumber,
+                    onValueChange = { twilioNumber = it },
+                    label = { Text("Twilio Phone Number") },
+                    placeholder = { Text("+14155551234") },
+                    singleLine = true,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("cloud_twilio_number_input")
+                )
+
+                Text(
+                    text = "Forwarding Type (Jio / Airtel / Vi)",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ForwardingMode.entries.forEach { mode ->
+                        FilterChip(
+                            selected = selectedMode == mode,
+                            onClick = { selectedMode = mode },
+                            label = { Text(mode.label) },
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = RoyalBlue,
+                                selectedLabelColor = PureWhite
+                            )
+                        )
+                    }
+                }
+
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = SoftBlueTint
+                ) {
+                    Text(
+                        text = "**61* forwards when you don't pick up in class. **21* forwards every call immediately. Dial ##002# anytime to reset.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DeepNavy,
+                        modifier = Modifier.padding(10.dp)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    onSave(backendUrl, twilioNumber, selectedMode, useCloud)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = RoyalBlue),
+                modifier = Modifier.testTag("save_cloud_config_button")
+            ) {
+                Text("Save & Sync")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.cancel))
+            }
+        }
+    )
+}
+
 
 

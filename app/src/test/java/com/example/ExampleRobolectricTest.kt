@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.ParentMessage
 import com.example.data.SafeCallPreferences
 import com.example.data.VoiceLanguages
+import com.example.telephony.ForwardingMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -52,7 +53,9 @@ class ExampleRobolectricTest {
             callerNumber = "+91 98765 43210",
             messageText = "Call me after lab finishes",
             studentStatusAtCall = "Lab Session lo unna",
-            timestampMillis = 1000L
+            timestampMillis = 1000L,
+            recordingUrl = "https://example.ngrok-free.app/api/recordings/RE123",
+            durationSeconds = 9
         )
         val msg2 = ParentMessage(
             id = "m2",
@@ -69,6 +72,8 @@ class ExampleRobolectricTest {
         val loaded = SafeCallPreferences(context).getMessages()
         assertEquals(2, loaded.size)
         assertEquals("Nanna", loaded.first().callerDisplay)
+        assertEquals("https://example.ngrok-free.app/api/recordings/RE123", loaded.last().recordingUrl)
+        assertEquals(9, loaded.last().durationSeconds)
 
         prefs.deleteMessage("m2")
         assertEquals(1, SafeCallPreferences(context).getMessages().size)
@@ -128,5 +133,27 @@ class ExampleRobolectricTest {
             "Namaskaram, Exam Hall lo unnanu, beep tarvata cheppandi.",
             customLang.formatGreeting("Exam Hall")
         )
+    }
+
+    @Test
+    fun `cloud voice forwarding config and fcm token persist cleanly`() {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val prefs = SafeCallPreferences(context)
+
+        prefs.saveCloudConfig(
+            backendBaseUrl = "https://safecall-demo.ngrok-free.app",
+            twilioNumber = "+14155550199",
+            forwardingMode = ForwardingMode.UNCONDITIONAL_ALL,
+            useCloudForwarding = true
+        )
+        prefs.updateFcmToken("fcm_test_token_abc")
+
+        val reloaded = SafeCallPreferences(context).getCloudConfig()
+        assertEquals("https://safecall-demo.ngrok-free.app", reloaded.backendBaseUrl)
+        assertEquals("+14155550199", reloaded.twilioNumber)
+        assertEquals(ForwardingMode.UNCONDITIONAL_ALL, reloaded.forwardingMode)
+        assertTrue(reloaded.useCloudForwarding)
+        assertTrue(reloaded.isForwardingReady)
+        assertEquals("fcm_test_token_abc", reloaded.fcmToken)
     }
 }

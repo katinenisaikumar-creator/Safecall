@@ -18,7 +18,7 @@ class CallReceiver : BroadcastReceiver() {
         when (action) {
             Intent.ACTION_BOOT_COMPLETED,
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
-                if (prefs.isCollegeModeOn) {
+                if (prefs.isCollegeModeOn && !prefs.getCloudConfig().isForwardingReady) {
                     Log.d(TAG, "Restoring SafeCall monitoring after boot/update")
                     val serviceIntent = Intent(context, AutoAnswerService::class.java).apply {
                         this.action = AutoAnswerService.ACTION_START_MONITORING
@@ -30,6 +30,11 @@ class CallReceiver : BroadcastReceiver() {
             TelephonyManager.ACTION_PHONE_STATE_CHANGED -> {
                 if (!prefs.isCollegeModeOn) {
                     // College Mode is OFF: let calls behave completely normally
+                    return
+                }
+                if (prefs.getCloudConfig().isForwardingReady) {
+                    // Cloud Call Forwarding (**61* / **21*) is active: let Twilio answer instead of local TelecomManager
+                    Log.d(TAG, "Cloud forwarding is active; skipping local AutoAnswerService")
                     return
                 }
 

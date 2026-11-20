@@ -39,9 +39,12 @@ class MainActivity : ComponentActivity() {
             val modes by viewModel.modes.collectAsStateWithLifecycle()
             val selectedModeId by viewModel.selectedModeId.collectAsStateWithLifecycle()
             val activeVoiceLanguage by viewModel.activeVoiceLanguage.collectAsStateWithLifecycle()
+            val cloudConfig by viewModel.cloudConfig.collectAsStateWithLifecycle()
             val messages by viewModel.messages.collectAsStateWithLifecycle()
             val pipelineState by viewModel.pipelineState.collectAsStateWithLifecycle()
+            val playbackState by viewModel.playbackState.collectAsStateWithLifecycle()
             val systemHealth by viewModel.systemHealth.collectAsStateWithLifecycle()
+            val cloudSyncStatus by viewModel.cloudSyncStatus.collectAsStateWithLifecycle()
 
             val permissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -77,9 +80,12 @@ class MainActivity : ComponentActivity() {
                     modes = modes,
                     selectedModeId = selectedModeId,
                     activeVoiceLanguage = activeVoiceLanguage,
+                    cloudConfig = cloudConfig,
                     messages = messages,
                     pipelineState = pipelineState,
+                    playbackState = playbackState,
                     systemHealth = systemHealth,
+                    cloudSyncStatus = cloudSyncStatus,
                     onToggleCollegeMode = {
                         if (!isCollegeModeOn && !systemHealth.allPermissionsGranted) {
                             permissionLauncher.launch(viewModel.requiredRuntimePermissions())
@@ -96,6 +102,32 @@ class MainActivity : ComponentActivity() {
                         viewModel.saveCustomVoiceMessage(greeting, closing, localeTag)
                     },
                     onUpdateStudentStatus = { viewModel.updateStudentStatus(it) },
+                    onSaveCloudConfig = { backendUrl, twilioNumber, forwardingMode, useCloudForwarding ->
+                        viewModel.saveCloudConfig(
+                            backendBaseUrl = backendUrl,
+                            twilioNumber = twilioNumber,
+                            forwardingMode = forwardingMode,
+                            useCloudForwarding = useCloudForwarding
+                        )
+                    },
+                    onActivateForwardingNow = {
+                        if (!systemHealth.allPermissionsGranted) {
+                            permissionLauncher.launch(viewModel.requiredRuntimePermissions())
+                        }
+                        viewModel.activateForwardingNow()
+                    },
+                    onDeactivateAllForwardingNow = {
+                        if (!systemHealth.allPermissionsGranted) {
+                            permissionLauncher.launch(viewModel.requiredRuntimePermissions())
+                        }
+                        viewModel.deactivateAllForwardingNow()
+                    },
+                    onRefreshCloudInbox = { viewModel.refreshCloudInbox() },
+                    onDismissCloudStatus = { viewModel.dismissCloudStatusBanner() },
+                    onToggleAudioPlayback = { messageId, url ->
+                        viewModel.toggleAudioPlayback(messageId, url)
+                    },
+                    onStopAudioPlayback = { viewModel.stopAudioPlayback() },
                     onStartFakeCallTest = { name, number ->
                         if (!systemHealth.allPermissionsGranted) {
                             permissionLauncher.launch(viewModel.requiredRuntimePermissions())
