@@ -12,6 +12,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioDeviceInfo
+import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.os.Build
@@ -190,26 +192,34 @@ class AutoAnswerService : Service() {
         val finalCallerDisplay = callerName ?: currentCallerNumber ?: displayCaller
         val resolvedNumber = currentCallerNumber ?: callerNumber
 
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+        var previousMusicVolume: Int? = null
+        var audioFocusRequest: AudioFocusRequest? = null
+        @Suppress("DEPRECATION")
+        val previousSpeaker = audioManager?.isSpeakerphoneOn ?: false
+
         // Step 2: Lift the call using TelecomManager (only for real incoming calls)
         if (!isSimulated) {
             val answered = acceptIncomingCallViaTelecom()
             if (!answered) {
                 Log.w(TAG, "Could not accept call via TelecomManager (missing permission or API < 26)")
             }
-            // Brief settle delay so audio route opens after answering
-            delay(700L)
+            // Wait for telephony audio path to transition to MODE_IN_CALL
+            waitForCallAudioActive(audioManager)
         }
-
-        val audioManager = getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-        val previousAudioMode = audioManager?.mode ?: AudioManager.MODE_NORMAL
-        @Suppress("DEPRECATION")
-        val previousSpeaker = audioManager?.isSpeakerphoneOn ?: false
 
         try {
             if (!isSimulated && audioManager != null) {
-                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-                @Suppress("DEPRECATION")
-                audioManager.isSpeakerphoneOn = true
+                // Keep system MODE_IN_CALL untouched; route output to loudspeaker via API 31+ or legacy API
+                enableSpeakerphoneForCall(audioManager)
+
+                previousMusicVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                runCatching {
+                    audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
+                }
+
+                audioFocusRequest = requestTransientAudioFocus(audioManager)
             }
 
             val studentStatus = prefs.getEffectiveStatus()
@@ -289,11 +299,89 @@ class AutoAnswerService : Service() {
         } finally {
             if (!isSimulated && audioManager != null) {
                 runCatching {
-                    @Suppress("DEPRECATION")
-                    audioManager.isSpeakerphoneOn = previousSpeaker
-                    audioManager.mode = previousAudioMode
+                    restoreSpeakerphoneAfterCall(audioManager, previousSpeaker)
+                    previousMusicVolume?.let { prevVol ->
+                        audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, prevVol, 0)
+                    }
+                    abandonTransientAudioFocus(audioManager, audioFocusRequest)
                 }
             }
+        }
+    }
+
+    private suspend fun waitForCallAudioActive(audioManager: AudioManager?) {
+        if (audioManager == null) {
+            delay(1200L)
+            return
+        }
+        var waitedMs = 0L
+        while (waitedMs < 2200L) {
+            if (audioManager.mode == AudioManager.MODE_IN_CALL) {
+                delay(450L)
+                return
+            }
+            delay(150L)
+            waitedMs += 150L
+        }
+    }
+
+    private fun enableSpeakerphoneForCall(audioManager: AudioManager) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val speakerDevice = audioManager.availableCommunicationDevices
+                .firstOrNull { it.type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER }
+            if (speakerDevice != null) {
+                val success = audioManager.setCommunicationDevice(speakerDevice)
+                Log.d(TAG, "setCommunicationDevice(SPEAKER) success=$success")
+            }
+        }
+        @Suppress("DEPRECATION")
+        runCatching {
+            audioManager.isSpeakerphoneOn = true
+        }
+    }
+
+    private fun restoreSpeakerphoneAfterCall(audioManager: AudioManager, previousSpeaker: Boolean) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            runCatching { audioManager.clearCommunicationDevice() }
+        }
+        @Suppress("DEPRECATION")
+        runCatching {
+            audioManager.isSpeakerphoneOn = previousSpeaker
+        }
+    }
+
+    private fun requestTransientAudioFocus(audioManager: AudioManager): AudioFocusRequest? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
+                .build()
+            audioManager.requestAudioFocus(req)
+            req
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.requestAudioFocus(
+                null,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+            )
+            null
+        }
+    }
+
+    private fun abandonTransientAudioFocus(
+        audioManager: AudioManager,
+        focusRequest: AudioFocusRequest?
+    ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && focusRequest != null) {
+            audioManager.abandonAudioFocusRequest(focusRequest)
+        } else {
+            @Suppress("DEPRECATION")
+            audioManager.abandonAudioFocus(null)
         }
     }
 
@@ -392,6 +480,7 @@ class AutoAnswerService : Service() {
 
                 val params = Bundle().apply {
                     putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_MUSIC)
+                    putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
                 }
                 val result = tts.speak(textToSpeak, TextToSpeech.QUEUE_FLUSH, params, utteranceId)
                 if (result != TextToSpeech.SUCCESS && cont.isActive) {

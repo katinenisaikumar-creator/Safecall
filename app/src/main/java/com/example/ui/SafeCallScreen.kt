@@ -1134,6 +1134,24 @@ private fun StatusInputCard(
                     )
                 }
             }
+
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(15.dp)
+                )
+                Text(
+                    text = "Real Call Note: Android blocks apps from injecting audio directly into the cellular line, so SafeCall plays via Loudspeaker at full volume for mic pickup. Phones with strong Echo Cancellation may still filter speaker audio.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
         }
     }
 }
